@@ -58,7 +58,6 @@ def run_query(agent, query_):
     output = agent(query_)
     response, intermediate_steps = output['output'], output['intermediate_steps']
     thought, action, action_input, observation, steps = decode_intermediate_steps(intermediate_steps)
-    store_convo(query_, steps, response)
     return response, thought, action, action_input, observation
 
 

@@ -31,7 +31,7 @@ def save_chart(query):
     query += ' . ' + q_s
     return query
 
-data_directory = "csv"  # Replace with the path to the directory containing your files
+data_directory = "https://github.com/yiminchen1999/langchain_csv/blob/df34074191b631e915ef40527f9196a582149ab9/csv"  # Replace with the path to the directory containing your files
 file_list = os.listdir(data_directory)
 
 
