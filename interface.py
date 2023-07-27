@@ -1,40 +1,14 @@
 import streamlit as st
-import pandas as pd
-import json
-import streamlit as st
-import pandas as pd
-import json
-from langchain.agents import initialize_agent, AgentType
-from langchain.agents import create_pandas_dataframe_agent
-from langchain.chat_models import ChatOpenAI
-from langchain.tools import DuckDuckGoSearchRun
-import os
-import streamlit as st
 from functions import *
 import platform
-import openai
-from streamlit_chat import message
 from streamlit_image_select import image_select
-import matplotlib.pyplot as plt
-import streamlit as st
-import numpy as np
 import subprocess
-
 import streamlit as st
-import matplotlib.pyplot as plt
-import pandas as pd
 import os
 from streamlit_chat import message
-import enum
-from langchain.llms import OpenAI
-import seaborn as sns
-import json
-from agent import query_agent
-
 from langchain import OpenAI
 from langchain.agents import create_pandas_dataframe_agent
 import pandas as pd
-from agent import query_agent, create_agent
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
 
