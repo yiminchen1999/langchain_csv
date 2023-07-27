@@ -13,16 +13,15 @@ import enum
 from langchain.llms import OpenAI
 import seaborn as sns
 import json
-from agent import query_agent, create_agent
+from agent import query_agent
 
 from langchain import OpenAI
 from langchain.agents import create_pandas_dataframe_agent
 import pandas as pd
 
+
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.")
-    st.stop()
+
 
 file_formats = {
     "csv": pd.read_csv,
@@ -31,6 +30,10 @@ file_formats = {
     "xlsm": pd.read_excel,
 
 }
+def save_chart(query):
+    q_s = ' If any charts or graphs or plots were created save them localy and include the save file names in your response.'
+    query += ' . ' + q_s
+    return query
 
 
 def load_data(file_path):
@@ -46,58 +49,28 @@ def load_data(file_path):
         return None
 
 
-def query_agent(agent, query):
-    """
-    Query an agent and return the response as a string.
+def run_query(agent, query_):
+    #if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' in query_:
+    if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' in query_:
+        query_ = save_chart(query_)
+    output = agent(query_)
+    response, intermediate_steps = output['output'], output['intermediate_steps']
+    thought, action, action_input, observation, steps = decode_intermediate_steps(intermediate_steps)
+    return response, intermediate_steps,thought, action, action_input, observation
 
-    Args:
-        agent: The agent to query.
-        query: The query to ask the agent.
-
-    Returns:
-        The response from the agent as a string.
-    """
-
-    prompt = (
-            """
-                For the following query, if it requires drawing a table, reply as follows:
-                {"table": {"columns": ["column1", "column2", ...], "data": [[value1, value2, ...], [value1, value2, ...], ...]}}
-    
-                If the query requires creating a bar chart, reply as follows:
-                {"bar": {"columns": ["A", "B", "C", ...], "data": [25, 24, 10, ...]}}
-    
-                If the query requires creating a line chart, reply as follows:
-                {"line": {"columns": ["A", "B", "C", ...], "data": [25, 24, 10, ...]}}
-    
-                There can only be two types of chart, "bar" and "line".
-    
-                If it is just asking a question that requires neither, reply as follows:
-                {"answer": "answer"}
-                Example:
-                {"answer": "The title with the highest rating is 'Gilead'"}
-    
-                If you do not know the answer, reply as follows:
-                {"answer": "I do not know."}
-    
-                Return all output as a string.
-    
-                All strings in "columns" list and data list, should be in double quotes,
-    
-                For example: {"columns": ["title", "ratings_count"], "data": [["Gilead", 361], ["Spider's Web", 5164]]}
-    
-                Lets think step by step.
-    
-                Below is the query.
-                Query: 
-                """
-            + query
-    )
-
-    # Run the prompt through the agent.
-    response = agent.run(prompt)
-
-    # Convert the response to a string.
-    return response.__str__()
+def decode_intermediate_steps(steps):
+    log, thought_, action_, action_input_, observation_ = [], [], [], [], []
+    text = ''
+    #把thinking process extract出来
+    for step in steps:
+        thought_.append('[{}]'.format(step[0][2].split('Action:')[0]))
+        action_.append('[Action:] {}'.format(step[0][2].split('Action:')[1].split('Action Input:')[0]))
+        action_input_.append(
+            '[Action Input:] {}'.format(step[0][2].split('Action:')[1].split('Action Input:')[1]))
+        observation_.append('[Observation:] {}'.format(step[1]))
+        log.append(step[0][2])
+        text = step[0][2] + ' Observation: {}'.format(step[1])
+    return thought_, action_, action_input_, observation_, text
 
 def decode_response(response: str) -> dict:
     """This function converts the string response from the model to a dictionary object.
@@ -135,25 +108,22 @@ def write_response(response_dict: dict):
 
     # Check if the response is a line chart.
     if "line" in response_dict:
-        data = response_dict["line"]
-        df = pd.DataFrame(data)
-        df.set_index("columns", inplace=True)
+        df = response_dict["line"]
         st.line_chart(df)
 
     # Check if the response is a table.
     if "table" in response_dict:
-        data = response_dict["table"]
-        df = pd.DataFrame(data["data"], columns=data["columns"])
         st.table(df)
+    if "plot" in response_dict:
+        st.plot(df)
 
-
-st.set_page_config(page_title="Chat with Analytical Data", page_icon="🦜")
-st.title("🦜 Chat with Analytical Data")
 
 data_directory = "csv"  # Replace with the path to the directory containing your files
 
 file_list = os.listdir(data_directory)
+st.title("Chat with your CSV")
 selected_file = st.selectbox("Select a Data file", file_list, help="Various File formats are Support")
+
 
 if selected_file:
     file_path = os.path.join(data_directory, selected_file)
@@ -163,15 +133,15 @@ if selected_file:
 query = st.text_area("Insert your query")
 
 if st.button("Submit Query", type="primary"):
+
     # Create an agent from the CSV file.
     llm = OpenAI(temperature=0, openai_api_key=openai_api_key)
-    agent = create_pandas_dataframe_agent(llm, df, verbose=False)
-
-    # Query the agent.
-    response = query_agent(agent=agent, query=query)
-
+    agent = create_pandas_dataframe_agent(llm, df, verbose=True,return_intermediate_steps=True)
+    with st.spinner("Thinking..."):
+        response = run_query(agent, query)
+        st.write(response)
     # Decode the response.
-    decoded_response = decode_response(response)
+        decoded_response = decode_response(response)
 
     # Write the response to the Streamlit app.
-    write_response(decoded_response)
+        write_response(decoded_response)
