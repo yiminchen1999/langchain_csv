@@ -1,10 +1,47 @@
 import streamlit as st
 import pandas as pd
 import json
-
+import os
 from agent import query_agent, create_agent
 
+file_formats = {
+    "csv": pd.read_csv,
+    "xls": pd.read_excel,
+    "xlsx": pd.read_excel,
+    "xlsm": pd.read_excel,
 
+}
+def load_data(file_path):
+    try:
+        ext = os.path.splitext(file_path)[1][1:].lower()
+    except:
+        ext = file_path.split(".")[-1]
+    if ext in file_formats:
+        df = file_formats[ext](file_path)
+        return df
+    else:
+        st.error(f"Unsupported file format: {ext}")
+        return None
+data_directory = "csv"  # Replace with the path to the directory containing your files
+
+file_list = os.listdir(data_directory)
+selected_file = st.selectbox("Select a Data file", file_list, help="Various File formats are Support")
+
+if selected_file:
+    file_path = os.path.join(data_directory, selected_file)
+    df = load_data(file_path)
+
+def load_data(file_path):
+    try:
+        ext = os.path.splitext(file_path)[1][1:].lower()
+    except:
+        ext = file_path.split(".")[-1]
+    if ext in file_formats:
+        df = file_formats[ext](file_path)
+        return df
+    else:
+        st.error(f"Unsupported file format: {ext}")
+        return None
 def decode_response(response: str) -> dict:
     """This function converts the string response from the model to a dictionary object.
 
