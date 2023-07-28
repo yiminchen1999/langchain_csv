@@ -106,3 +106,19 @@ if user_query:
         stream_handler = StreamHandler(st.empty())
         response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
         st.session_state.messages.append({"role": "assistant", "content": response})
+
+        if st.button('Open Directory'):
+            current_dir = os.getcwd()
+            if platform.system() == "Darwin":  # macOS
+                subprocess.Popen(["open", current_dir])
+            elif platform.system() == "Windows":
+                subprocess.Popen(["explorer", current_dir])
+            else:
+                print("Directory opened:", current_dir)
+        imgs_png = glob.glob('*.png')
+        imgs_jpg = glob.glob('*.jpg')
+        imgs_jpeeg = glob.glob('*.jpeg')
+        imgs_ = imgs_png + imgs_jpg + imgs_jpeeg
+        if len(imgs_) > 0:
+            img = image_select("Generated Charts/Graphs", imgs_, captions=imgs_, return_value='index')
+            st.write(img)

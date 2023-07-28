@@ -9,6 +9,10 @@ from streamlit_chat import message
 from langchain import OpenAI
 from langchain.agents import create_pandas_dataframe_agent
 import pandas as pd
+import plotly.figure_factory as ff
+
+import numpy as np
+import matplotlib.pyplot as plt
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
 
@@ -27,22 +31,19 @@ file_formats = {
 
 }
 def save_chart(query):
-    q_s = ' If any charts or graphs or plots were created save it andcprint these charts or plots in your response.'
+    q_s = ' If any charts or graphs or plots were created save it and show these charts or plots in your response.'
     query += ' . ' + q_s
     return query
 
-data_directory = "https://github.com/yiminchen1999/langchain_csv/blob/df34074191b631e915ef40527f9196a582149ab9/csv"  # Replace with the path to the directory containing your files
+data_directory = "csv"  # Replace with the path to the directory containing your files
 file_list = os.listdir(data_directory)
 
 
-def run_query(agent, query_):
+def run_query(pdagent, query_):
     #if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' in query_:
     if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' in query_:
         save_chart(query_)
-
-
-
-    output = agent(query_)
+    output = pdagent(query_)
     response, intermediate_steps = output['output'], output['intermediate_steps']
     thought, action, action_input, observation, steps = decode_intermediate_steps(intermediate_steps)
     return response, thought, action, action_input, observation
@@ -97,13 +98,17 @@ def main():
             x += 1
         # Create an agent from the CSV file.
             llm = OpenAI(temperature=0, openai_api_key=openai_api_key)
-            agent = create_pandas_dataframe_agent(llm, df, verbose=True,return_intermediate_steps=True)
+            pdagent = create_pandas_dataframe_agent(llm, df, verbose=True,return_intermediate_steps=True)
             with st.spinner("Thinking..."):
                 print(user_input, len(user_input))
-                response, thought, action, action_input, observation = run_query(agent, user_input)
+                response, thought, action, action_input, observation = run_query(pdagent, user_input)
                 for i in range(0, len(thought)):
-                    st.write(df.head())
-                    st.write(df.describe())
+                    #if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' or 'draw' or 'drew' in user_input:
+                        #group_labels = df.columns.tolist()
+                    #st.pyplot(df.plot())
+                    #st.write(df.describe())
+                    st.line_chart(df)
+                    st.bar_chart(df)
                 st.session_state.past.append(user_input)
                 st.session_state.generated.append(response)
 
@@ -119,21 +124,9 @@ def main():
                     st.sidebar.write(action_input[i])
                     st.sidebar.write(observation[i])
                     st.sidebar.write('====')
-        if st.button('Open Directory'):
-            current_dir = os.getcwd()
-            if platform.system() == "Darwin":  # macOS
-                subprocess.Popen(["open", current_dir])
-            elif platform.system() == "Windows":
-                subprocess.Popen(["explorer", current_dir])
-            else:
-                print("Directory opened:", current_dir)
-        imgs_png = glob.glob('*.png')
-        imgs_jpg = glob.glob('*.jpg')
-        imgs_jpeeg = glob.glob('*.jpeg')
-        imgs_ = imgs_png + imgs_jpg + imgs_jpeeg
-        if len(imgs_) > 0:
-            img = image_select("Generated Charts/Graphs", imgs_, captions=imgs_, return_value='index')
-            st.write(img)
+                    if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' or 'draw' or 'drew' in user_input:
+                        st.write(action_input[i])
+
 
 if __name__ == "__main__":
     if 'generated' not in st.session_state:
