@@ -1,147 +1,142 @@
+
+import pandas as pd
+import openai
 import streamlit as st
-import pandas as pd
-import json
-from langchain.agents import initialize_agent, AgentType
-from langchain.agents import create_pandas_dataframe_agent
-from langchain.chat_models import ChatOpenAI
-from langchain.tools import DuckDuckGoSearchRun
-import streamlit as st
-import matplotlib.pyplot as plt
-import pandas as pd
-import os
-import enum
-from langchain.llms import OpenAI
-import seaborn as sns
-import json
-from agent import query_agent
+# import streamlit_nested_layout
+from classes import get_primer, format_question, run_request
+import warnings
 
-from langchain import OpenAI
-from langchain.agents import create_pandas_dataframe_agent
-import pandas as pd
+warnings.filterwarnings("ignore")
+st.set_option('deprecation.showPyplotGlobalUse', False)
+#st.set_page_config(page_icon="chat2vis.png", layout="wide", page_title="Chat2VIS")
+#st.markdown("<h1 style='text-align: center; font-weight:bold; font-family:comic sans ms; padding-top: 0rem;'> \
+            #Chat with our data</h1>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center;padding-top: 0rem;'>Creating Visualisations using LLM</h2>", unsafe_allow_html=True)
 
 
-openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
+st.sidebar.caption("see full code at (https://github.com/yiminchen1999/langchain_csv.git)")
 
 
-file_formats = {
-    "csv": pd.read_csv,
-    "xls": pd.read_excel,
-    "xlsx": pd.read_excel,
-    "xlsm": pd.read_excel,
+available_models = {"ChatGPT-4": "gpt-4"}#, "GPT-3": "text-davinci-003",
 
-}
-def save_chart(query):
-    q_s = ' If any charts or graphs or plots were created save them localy and include the save file names in your response.'
-    query += ' . ' + q_s
-    return query
+# List to hold datasets
+if "datasets" not in st.session_state:
+    datasets = {}
+    # Preload datasets
+    datasets["topkeywords"] = pd.read_csv("csv/CSCL_coTopKw_1995.csv")
+    datasets["coauthor"] = pd.read_csv("csv/CSCL_CoAuthor_1995.csv")
+    datasets["authorkeywords"] = pd.read_csv("csv/CSCL_authorKeywords_1995.csv")
+    datasets["topkeywords for 10 years"] = pd.read_csv("merged_dataset.csv")
+    datasets["test csv file (automobile)"] = pd.read_csv("auto.csv")
+    st.session_state["datasets"] = datasets
+else:
+    # use the list already loaded
+    datasets = st.session_state["datasets"]
 
+my_key = st.text_input(label="Type your OpenAI Key:",
+                       help="Please ensure you have an OpenAI API account with credit. ChatGPT Plus subscription does not include API access.",
+                       type="password")
 
-def load_data(file_path):
-    try:
-        ext = os.path.splitext(file_path)[1][1:].lower()
-    except:
-        ext = file_path.split(".")[-1]
-    if ext in file_formats:
-        df = file_formats[ext](file_path)
-        return df
-    else:
-        st.error(f"Unsupported file format: {ext}")
-        return None
-
-
-def run_query(agent, query_):
-    #if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' in query_:
-    if 'chart' or 'charts' or 'graph' or 'graphs' or 'plot' or 'plt' in query_:
-        query_ = save_chart(query_)
-    output = agent(query_)
-    response, intermediate_steps = output['output'], output['intermediate_steps']
-    thought, action, action_input, observation, steps = decode_intermediate_steps(intermediate_steps)
-    return response, intermediate_steps,thought, action, action_input, observation
-
-def decode_intermediate_steps(steps):
-    log, thought_, action_, action_input_, observation_ = [], [], [], [], []
-    text = ''
-    #把thinking process extract出来
-    for step in steps:
-        thought_.append('[{}]'.format(step[0][2].split('Action:')[0]))
-        action_.append('[Action:] {}'.format(step[0][2].split('Action:')[1].split('Action Input:')[0]))
-        action_input_.append(
-            '[Action Input:] {}'.format(step[0][2].split('Action:')[1].split('Action Input:')[1]))
-        observation_.append('[Observation:] {}'.format(step[1]))
-        log.append(step[0][2])
-        text = step[0][2] + ' Observation: {}'.format(step[1])
-    return thought_, action_, action_input_, observation_, text
-
-def decode_response(response: str) -> dict:
-    """This function converts the string response from the model to a dictionary object.
-
-    Args:
-        response (str): response from the model
-
-    Returns:
-        dict: dictionary with response data
-    """
-    return json.loads(response)
+with st.sidebar:
+    # First we want to choose the dataset, but we will fill it with choices once we've loaded one
+    dataset_container = st.empty()
 
 
-def write_response(response_dict: dict):
-    """
-    Write a response from an agent to a Streamlit app.
+    index_no = 0
+    # Radio buttons for dataset choice
+    chosen_dataset = dataset_container.radio(":bar_chart: Choose your data:", datasets.keys(),
+                                             index=index_no)  # ,horizontal=True,)
+    # Add facility to upload a dataset
+    uploaded_file = st.file_uploader(":computer: Load a CSV file:", type="csv")
+    chosen_datasets = []
+    if uploaded_file is not None:
+        # Read in the data, add it to the list of available datasets
+        file_name = uploaded_file.name[:-4].capitalize()
+        datasets[file_name] = pd.read_csv(uploaded_file)
+        # Default for the multiselect
+        chosen_datasets.append(file_name)
 
-    Args:
-        response_dict: The response from the agent.
+    # Check boxes for model choice
+    st.write(":brain: We use ChatGPT-4 model:")
+    # Keep a dictionary of whether models are selected or not
+    use_model = {}
+    for model_desc, model_name in available_models.items():
+        label = f"{model_desc} ({model_name})"
+        key = f"key_{model_desc}"
+        use_model[model_desc] = st.checkbox(label, value=True, key=key)
 
-    Returns:
-        None.
-    """
+# Text area for query
+question = st.text_area(":eyes: What would you like to visualise?", height=10)
+go_btn = st.button("Thinking...")
 
-    # Check if the response is an answer.
-    if "answer" in response_dict:
-        st.write(response_dict["answer"])
+# Make a list of the models which have been selected
+# model_dict = {model_name: use_model for model_name, use_model in use_model.items() if use_model}
+# model_count = len(model_dict)
+model_list = [model_name for model_name, choose_model in use_model.items() if choose_model]
+model_count = len(model_list)
 
-    # Check if the response is a bar chart.
-    if "bar" in response_dict:
-        data = response_dict["bar"]
-        df = pd.DataFrame(data)
-        df.set_index("columns", inplace=True)
-        st.bar_chart(df)
+# Execute chatbot query
 
-    # Check if the response is a line chart.
-    if "line" in response_dict:
-        df = response_dict["line"]
-        st.line_chart(df)
+if go_btn and model_count > 0:
 
-    # Check if the response is a table.
-    if "table" in response_dict:
-        st.table(df)
-    if "plot" in response_dict:
-        st.plot(df)
+    # Place for plots depending on how many models
+    plots = st.columns(model_count)
+    # Get the primer for this dataset
+    primer1, primer2 = get_primer(datasets[chosen_dataset], 'datasets["' + chosen_dataset + '"]')
+    # Format the question
+    question_to_ask = format_question(primer1, primer2, question)
+    # Create model, run the request and print the results
+    for plot_num, model_type in enumerate(model_list):
+        with plots[plot_num]:
+            st.subheader(model_type)
+            try:
+                # Run the question
+                answer = ""
+                answer = run_request(question_to_ask, available_models[model_type], key=my_key)
+                # the answer is the completed Python script so add to the beginning of the script to it.
+                answer = primer2 + answer
+                plot_area = st.empty()
+                plot_area.pyplot(exec(answer))
+            except Exception as e:
+                if type(e) == openai.error.APIError:
+                    st.error("OpenAI API Error. Please try again a short time later.")
+                elif type(e) == openai.error.Timeout:
+                    st.error("OpenAI API Error. Your request timed out. Please try again a short time later.")
+                elif type(e) == openai.error.RateLimitError:
+                    st.error("OpenAI API Error. You have exceeded your assigned rate limit.")
+                elif type(e) == openai.error.APIConnectionError:
+                    st.error(
+                        "OpenAI API Error. Error connecting to services. Please check your network/proxy/firewall settings.")
+                elif type(e) == openai.error.InvalidRequestError:
+                    st.error("OpenAI API Error. Your request was malformed or missing required parameters.")
+                elif type(e) == openai.error.AuthenticationError:
+                    st.error("Please enter a valid OpenAI API Key.")
+                elif type(e) == openai.error.ServiceUnavailableError:
+                    st.error("OpenAI Service is currently unavailable. Please try again a short time later.")
+                else:
+                    st.error(
+                        "Unfortunately the code generated from the model contained errors and was unable to execute. ")
 
+# Display the datasets in a list of tabs
+# Create the tabs
+tab_list = st.tabs(datasets.keys())
 
-data_directory = "csv"  # Replace with the path to the directory containing your files
+# Load up each tab with a dataset
+for dataset_num, tab in enumerate(tab_list):
+    with tab:
+        #
+        dataset_name = list(datasets.keys())[dataset_num]
+        st.subheader(dataset_name)
+        st.dataframe(datasets[dataset_name])
 
-file_list = os.listdir(data_directory)
-st.title("Chat with your CSV")
-selected_file = st.selectbox("Select a Data file", file_list, help="Various File formats are Support")
-
-
-if selected_file:
-    file_path = os.path.join(data_directory, selected_file)
-    df = load_data(file_path)
-    st.write(df.head())
-
-query = st.text_area("Insert your query")
-
-if st.button("Submit Query", type="primary"):
-
-    # Create an agent from the CSV file.
-    llm = OpenAI(temperature=0, openai_api_key=openai_api_key)
-    agent = create_pandas_dataframe_agent(llm, df, verbose=True,return_intermediate_steps=True)
-    with st.spinner("Thinking..."):
-        response = run_query(agent, query)
-        st.write(response)
-    # Decode the response.
-        decoded_response = decode_response(response)
-
-    # Write the response to the Streamlit app.
-        write_response(decoded_response)
+footer = """<style>.footer {position: fixed;left: 0;bottom: 0;width: 100%;text-align: center;}</style><div class="footer">
+<p> <a style='display: block; text-align: center;'> Datasets courtesy of NL4DV, nvBench and ADVISor </a></p></div>"""
+st.caption("preview of data")
+# Hide menu and footer
+hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)

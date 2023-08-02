@@ -1,124 +1,75 @@
-import os
-import tempfile
 import streamlit as st
-from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import PyPDFLoader
-from langchain.memory import ConversationBufferMemory
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.callbacks.base import BaseCallbackHandler
-from langchain.chains import ConversationalRetrievalChain
-from langchain.vectorstores import DocArrayInMemorySearch
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+import pandas as pd
+import json
 
-st.set_page_config(page_title="LangChain: Chat with Documents", page_icon="🦜")
-st.title("🦜 LangChain: Chat with Documents")
+from agent import query_agent, create_agent
 
 
-@st.cache_resource(ttl="1h")
-def configure_qa_chain(uploaded_files):
-    # Read documents
-    docs = []
-    temp_dir = tempfile.TemporaryDirectory()
-    for file in uploaded_files:
-        temp_filepath = os.path.join(temp_dir.name, file.name)
-        with open(temp_filepath, "wb") as f:
-            f.write(file.getvalue())
-        loader = PyPDFLoader(temp_filepath)
-        docs.extend(loader.load())
+def decode_response(response: str) -> dict:
+    """This function converts the string response from the model to a dictionary object.
 
-    # Split documents
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-    splits = text_splitter.split_documents(docs)
+    Args:
+        response (str): response from the model
 
-    # Create embeddings and store in vectordb
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    vectordb = DocArrayInMemorySearch.from_documents(splits, embeddings)
-
-    # Define retriever
-    retriever = vectordb.as_retriever(search_type="mmr", search_kwargs={"k": 2, "fetch_k": 4})
-
-    # Setup memory for contextual conversation
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
-    # Setup LLM and QA chain
-    llm = ChatOpenAI(
-        model_name="gpt-3.5-turbo", openai_api_key=openai_api_key, temperature=0, streaming=True
-    )
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm, retriever=retriever, memory=memory, verbose=True
-    )
-    return qa_chain
+    Returns:
+        dict: dictionary with response data
+    """
+    return json.loads(response)
 
 
-class StreamHandler(BaseCallbackHandler):
-    def __init__(self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""):
-        self.container = container
-        self.text = initial_text
+def write_response(response_dict: dict):
+    """
+    Write a response from an agent to a Streamlit app.
 
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
-        self.text += token
-        self.container.markdown(self.text)
+    Args:
+        response_dict: The response from the agent.
+
+    Returns:
+        None.
+    """
+
+    # Check if the response is an answer.
+    if "answer" in response_dict:
+        st.write(response_dict["answer"])
+
+    # Check if the response is a bar chart.
+    if "bar" in response_dict:
+        data = response_dict["bar"]
+        df = pd.DataFrame(data)
+        df.set_index("columns", inplace=True)
+        st.bar_chart(df)
+
+    # Check if the response is a line chart.
+    if "line" in response_dict:
+        data = response_dict["line"]
+        df = pd.DataFrame(data)
+        df.set_index("columns", inplace=True)
+        st.line_chart(df)
+
+    # Check if the response is a table.
+    if "table" in response_dict:
+        data = response_dict["table"]
+        df = pd.DataFrame(data["data"], columns=data["columns"])
+        st.table(df)
 
 
-class PrintRetrievalHandler(BaseCallbackHandler):
-    def __init__(self, container):
-        self.container = container.expander("Context Retrieval")
+st.title("👨‍💻 Chat with your CSV")
 
-    def on_retriever_start(self, query: str, **kwargs):
-        self.container.write(f"**Question:** {query}")
+st.write("Please upload your CSV file below.")
 
-    def on_retriever_end(self, documents, **kwargs):
-        # self.container.write(documents)
-        for idx, doc in enumerate(documents):
-            source = os.path.basename(doc.metadata["source"])
-            self.container.write(f"**Document {idx} from {source}**")
-            self.container.markdown(doc.page_content)
+data = st.file_uploader("Upload a CSV")
 
+query = st.text_area("Insert your query")
 
-openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.")
-    st.stop()
+if st.button("Submit Query", type="primary"):
+    # Create an agent from the CSV file.
+    agent = create_agent(data)
 
-uploaded_files = st.sidebar.file_uploader(
-    label="Upload PDF files", type=["pdf"], accept_multiple_files=True
-)
-if not uploaded_files:
-    st.info("Please upload PDF documents to continue.")
-    st.stop()
+    # Query the agent.
+    response = query_agent(agent=agent, query=query)
 
-qa_chain = configure_qa_chain(uploaded_files)
+    # Decode the response.
+    decoded_response = decode_response(response)
 
-if "messages" not in st.session_state or st.sidebar.button("Clear message history"):
-    st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
-
-for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
-
-user_query = st.chat_input(placeholder="Ask me anything!")
-
-if user_query:
-    st.session_state.messages.append({"role": "user", "content": user_query})
-    st.chat_message("user").write(user_query)
-
-    with st.chat_message("assistant"):
-        retrieval_handler = PrintRetrievalHandler(st.container())
-        stream_handler = StreamHandler(st.empty())
-        response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-        if st.button('Open Directory'):
-            current_dir = os.getcwd()
-            if platform.system() == "Darwin":  # macOS
-                subprocess.Popen(["open", current_dir])
-            elif platform.system() == "Windows":
-                subprocess.Popen(["explorer", current_dir])
-            else:
-                print("Directory opened:", current_dir)
-        imgs_png = glob.glob('*.png')
-        imgs_jpg = glob.glob('*.jpg')
-        imgs_jpeeg = glob.glob('*.jpeg')
-        imgs_ = imgs_png + imgs_jpg + imgs_jpeeg
-        if len(imgs_) > 0:
-            img = image_select("Generated Charts/Graphs", imgs_, captions=imgs_, return_value='index')
-            st.write(img)
+    # Write the response to the Streamlit app.
+    write_response(decoded_response)

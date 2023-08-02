@@ -8,7 +8,7 @@ import environ
 env = environ.Env()
 environ.Env.read_env()
 
-API_KEY = env("apikey")
+API_KEY = env("api_key")
 
 
 def create_agent(filename: str):
@@ -50,12 +50,7 @@ def query_agent(agent, query):
                 {"table": {"columns": ["column1", "column2", ...], "data": [[value1, value2, ...], [value1, value2, ...], ...]}}
     
                 If the query requires creating a bar chart, reply as follows:
-                {
-                    "bar": {
-                    "columns": ["column1", "column2", ...],
-                     "data": [[value1, value2, ...], [value1, value2, ...], ...]
-    }
-}
+                {"bar": {"columns": ["A", "B", "C", ...], "data": [25, 24, 10, ...]}}
     
                 If the query requires creating a line chart, reply as follows:
                 {"line": {"columns": ["A", "B", "C", ...], "data": [25, 24, 10, ...]}}
